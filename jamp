@@ -13,7 +13,7 @@ OUT=plink # Default plink output prefix
 # and writes the resulting val to a file with extension .logp
 function pvals {
     echo "# Getting P values"
-    for file in ${OUT}*assoc; do
+    for file in ${OUT}.*assoc; do
         awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{printf "%.'$DEC'f\n", log($c)/log(10) * -1}' $file > "$file.logp"
     done
 }
@@ -85,7 +85,7 @@ pvals
 
 # Add P values
 echo "# Calculating P value totals"
-paste -d'+' ${OUT}*.logp | bc > ${J_PREFIX}.sumlogp
+paste -d'+' ${OUT}.*.logp | bc > ${J_PREFIX}.sumlogp
 
 # Split pheno file
 echo "# Splitting pheno file"
@@ -94,16 +94,16 @@ cut -d" " -f3- $PHENO > ${J_PREFIX}.$PHENO_TYPES
 
 # Split plink output, to be used later
 echo "# Split plink output"
-awk '{print $1, $2}' $(ls ${OUT}*assoc | awk 'NR==1{print $1}') > ${J_PREFIX}.chr_snp
+awk '{print $1, $2}' $(ls ${OUT}.*assoc | awk 'NR==1{print $1}') > ${J_PREFIX}.chr_snp
 
 # Get number of phenotypes and the associated pvals
 echo '# Get number of phenotypes and the associated pvals'
 count=
-for file in ${OUT}*assoc; do
+for file in ${OUT}.*assoc; do
 	count=$count+1
     awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print $c}' $file > "$file.pval"
 done
-paste -d" " ${OUT}*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$count', $0}' > ${J_PREFIX}.npheno_pheno_x
+paste -d" " ${OUT}.*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$count', $0}' > ${J_PREFIX}.npheno_pheno_x
 
 # Main loop
 echo "# Starting main loop"
@@ -124,7 +124,7 @@ do
 	
     # Add P values
     echo "# Calculating P value totals"
-    paste -d'+' ${OUT}*.logp | bc > ${J_PREFIX}.perm$c
+    paste -d'+' ${OUT}.*.logp | bc > ${J_PREFIX}.perm$c
 done
 
 echo 'JAMP: Permutations done'
