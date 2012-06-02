@@ -5,6 +5,7 @@
 PHENO_HEADER="pheno_header"
 PHENO_TYPES="pheno_types"
 PHENO_PERM="pheno_perm"
+DEC=10 # Number of decimals of logp
 PLINKOPTS=
 OUT=plink # Default plink output prefix
 
@@ -13,7 +14,7 @@ OUT=plink # Default plink output prefix
 function pvals {
     echo "# Getting P values"
     for file in ${OUT}*assoc; do
-        awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print log($c)/log(10) * -1}' $file > "$file.logp"
+        awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{printf "%.'$DEC'f\n", log($c)/log(10) * -1}' $file > "$file.logp"
     done
 }
 
