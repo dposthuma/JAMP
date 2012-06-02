@@ -1,0 +1,142 @@
+#!/bin/bash
+# Jamp 1.0
+# Arjen van Bochoven & Danielle Posthuma 1 juni 2012
+
+PHENO_HEADER="pheno_header"
+PHENO_TYPES="pheno_types"
+PHENO_PERM="pheno_perm"
+PLINKOPTS=
+OUT=plink # Default plink output prefix
+
+# Pvals gets the P values from column P, calculates the log10
+# and writes the resulting val to a file with extension .logp
+function pvals {
+    echo "# Getting P values"
+    for file in ${OUT}*assoc; do
+        awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print log($c)/log(10) * -1}' $file > "$file.logp"
+    done
+}
+
+# Bail out with a message
+function bail {
+	echo "JAMP ERROR: $1";
+	exit 1;
+}
+
+# Process options, pass all unknown options to plink
+while (( "$#" )); do
+  case "$1" in
+	--jperm )
+		PERM=$2; shift 2;;
+	--pheno )
+		PHENO=$2; shift 2;;
+	--out )
+		OUT=$2; PLINKOPTS="$PLINKOPTS $1 $2"; shift 2;;
+	--* )
+		PLINKOPTS="$PLINKOPTS $1"
+		while shift; do
+			if  [[ $1 != --* ]]; then
+				PLINKOPTS="$PLINKOPTS $1";
+			else
+				break;
+			fi
+		done;;
+    * ) # First argument does not have --
+		PLINKOPTS="$PLINKOPTS $1"; shift;;
+  esac
+done
+
+if [[ -z $PERM ]]; then
+	bail "Please specify permutations"; # Todo: add usage
+fi
+
+set - $(IFS="-"; echo $PERM)
+if [[ -n $2 ]]; then
+	PERMSTART=$1;
+	PERMEND=$2;
+else
+	PERMSTART=1;
+	PERMEND=$PERM;
+fi
+
+# Total number of permutations
+TOTALPERM=$((PERMEND-PERMSTART));
+
+# Jamp prefix
+J_PREFIX="${OUT}.jamp"
+
+echo "JAMP: Arguments"
+echo "# plink${PLINKOPTS}"
+echo "# pheno file: $PHENO"
+echo "# permutations: $PERMSTART - $PERMEND"
+
+# Check if we can write in OUT
+touch ${OUT}.log 2>/dev/null || bail "Cannot write to ${OUT}.log"
+
+echo "JAMP: Start"
+
+# Run plink
+echo '# Running plink'
+plink $PLINKOPTS --pheno $PHENO > /dev/null || bail 'There is an error running plink'
+
+# Get P values
+pvals
+
+# Add P values
+echo "# Calculating P value totals"
+paste -d'+' ${OUT}*.logp | bc > ${J_PREFIX}.sumlogp
+
+# Split pheno file
+echo "# Splitting pheno file"
+cut -d" " -f1-2 $PHENO > ${J_PREFIX}.$PHENO_HEADER
+cut -d" " -f3- $PHENO > ${J_PREFIX}.$PHENO_TYPES
+
+# Split plink output, to be used later
+echo "# Split plink output"
+awk '{print $1, $2}' $(ls ${OUT}*assoc | awk 'NR==1{print $1}') > ${J_PREFIX}.chr_snp
+
+# Get number of phenotypes and the associated pvals
+echo '# Get number of phenotypes and the associated pvals'
+count=
+for file in ${OUT}*assoc; do
+	count=$count+1
+    awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print $c}' $file > "$file.pval"
+done
+paste -d" " ${OUT}*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$count', $0}' > ${J_PREFIX}.npheno_pheno_x
+
+# Main loop
+echo "# Starting main loop"
+for (( c=$PERMSTART; c<=$PERMEND; c++ ))
+do
+	echo "JAMP: Permutation $c of $PERMEND";
+	
+	# Generate permutated file
+	echo "# Create perm file";
+    ./permutator ${J_PREFIX}.$PHENO_HEADER ${J_PREFIX}.$PHENO_TYPES ${J_PREFIX}.$PHENO_PERM $c
+
+    # Run plink
+	echo "# Run plink";
+    plink $PLINKOPTS --pheno ${J_PREFIX}.$PHENO_PERM > /dev/null
+
+    # Get P values
+	pvals
+	
+    # Add P values
+    echo "# Calculating P value totals"
+    paste -d'+' ${OUT}*.logp | bc > ${J_PREFIX}.perm$c
+done
+
+echo 'JAMP: Permutations done'
+
+# Glue perm files together
+echo '# Glueing perm files'
+paste -d' ' ${J_PREFIX}.perm* > ${J_PREFIX}.sumlogp_perm
+
+# Count occurences
+echo "# Generating SUMLOGP, NPERMS, EMP_P"
+awk 'BEGIN{c=1;while((getline n < "${J_PREFIX}.sumlogp") > 0){arr[c++] = n}print "SUMLOGP NPERMS EMP_P"}{c=0;for(i=1;i<=NF;i++){if($i>=arr[FNR]){c++}}print arr[FNR], NF, c/'$TOTALPERM'}' ${J_PREFIX}.sumlogp_perm > ${J_PREFIX}.sum_perm_emp
+
+# CHR SNP NPHENO P_Nn SUMLOGP NPERMS EMP_P
+paste -d" " ${J_PREFIX}.chr_snp ${J_PREFIX}.npheno_pheno_x ${J_PREFIX}.sum_perm_emp > ${J_PREFIX}.empp
+
+echo "JAMP: Done. Output in ${J_PREFIX}.empp";

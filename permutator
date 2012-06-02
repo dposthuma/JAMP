@@ -1,0 +1,46 @@
+#!/usr/bin/perl -w
+#################################################
+# script to create permutated phenotype files   #
+# wwith given seed                              #
+# credits for fisher_yates_shuffle Copyright (c)#
+# 1998 Tom Christiansen, Nathan Torkington and  #
+# O'Reilly & Associates, Inc.                   #
+#                                               #
+# Versie 1.0                                    #
+# 22 oktober 2004, 2 juni 2012                  #
+# Arjen van Bochoven                            #
+#################################################
+
+if( @ARGV < 4 ){ print ("Usage: program file1 file2 outfile seed\n"); exit; }
+
+open(FD1, "$ARGV[1]"); @array= <FD1>; close(FD1);
+
+srand($ARGV[3]);
+
+sub fisher_yates_shuffle {
+    my $array = shift;
+    my $i;
+    for ($i = @$array; --$i; ) {
+        my $j = int rand ($i+1);
+        next if $i == $j;
+        @$array[$i,$j] = @$array[$j,$i];
+    }
+}
+
+fisher_yates_shuffle( \@array );    # permutes @array in place
+
+
+#merge the two files
+open(FD2, "$ARGV[0]"); 
+open(FD3, ">$ARGV[2]" ) || die ("Cannot open for writing");
+foreach $line (@array)
+{
+	$append = <FD2>;
+	chop $append; #remove trailing newline
+	print FD3 "$append $line";
+}
+
+close(FD2);
+close (FD3);
+ 
+exit;
