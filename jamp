@@ -61,7 +61,7 @@ else
 fi
 
 # Total number of permutations
-TOTALPERM=$((PERMEND-PERMSTART));
+TOTALPERM=$((PERMEND-PERMSTART+1));
 
 # Jamp prefix
 J_PREFIX="${OUT}.jamp"
@@ -100,7 +100,7 @@ awk '{print $1, $2}' $(ls ${OUT}.*assoc | awk 'NR==1{print $1}') > ${J_PREFIX}.c
 echo '# Get number of phenotypes and the associated pvals'
 count=
 for file in ${OUT}.*assoc; do
-	count=$count+1
+	count=`expr $count + 1`
     awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print $c}' $file > "$file.pval"
 done
 paste -d" " ${OUT}.*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$count', $0}' > ${J_PREFIX}.npheno_pheno_x
@@ -135,7 +135,8 @@ paste -d' ' ${J_PREFIX}.perm* > ${J_PREFIX}.sumlogp_perm
 
 # Count occurences
 echo "# Generating SUMLOGP, NPERMS, EMP_P"
-awk 'BEGIN{c=1;while((getline n < "${J_PREFIX}.sumlogp") > 0){arr[c++] = n}print "SUMLOGP NPERMS EMP_P"}{c=0;for(i=1;i<=NF;i++){if($i>=arr[FNR]){c++}}print arr[FNR], NF, c/'$TOTALPERM'}' ${J_PREFIX}.sumlogp_perm > ${J_PREFIX}.sum_perm_emp
+awk 'BEGIN{c=1;while((getline n < "'${J_PREFIX}.sumlogp'") > 0){arr[c++] = n}print "SUMLOGP NPERMS EMP_P"}
+{c=0;for(i=1;i<=NF;i++){if($i>=arr[FNR]){c++}}print arr[FNR], NF, c/'$TOTALPERM'}' ${J_PREFIX}.sumlogp_perm > ${J_PREFIX}.sum_perm_emp
 
 # CHR SNP NPHENO P_Nn SUMLOGP NPERMS EMP_P
 paste -d" " ${J_PREFIX}.chr_snp ${J_PREFIX}.npheno_pheno_x ${J_PREFIX}.sum_perm_emp > ${J_PREFIX}.empp
