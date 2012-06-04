@@ -2,26 +2,65 @@
 # Jamp 1.0
 # Arjen van Bochoven & Danielle Posthuma 1 juni 2012
 
+VERSION=1.0.7
 PHENO_HEADER="pheno_header"
 PHENO_TYPES="pheno_types"
 PHENO_PERM="pheno_perm"
 DEC=10 # Number of decimals of logp
-PLINKOPTS=
+PLINKOPTS= # Contains the remaining options for plink
+DOSAGE= # Check if we're running with --dosage
+ALLPHENO= # Is --all-pheno requested
 OUT=plink # Default plink output prefix
+PHENO_RES= # File listing of pheno files
 
 # Pvals gets the P values from column P, calculates the log10
 # and writes the resulting val to a file with extension .logp
 function pvals {
     echo "# Getting P values"
-    for file in ${OUT}.*assoc; do
-        awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{printf "%.'$DEC'f\n", log($c)/log(10) * -1}' $file > "$file.logp"
-    done
+	count=0;
+    for file in $PHENO_RES; do
+		count=`expr $count + 1`
+        awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{val=$c=="NA"?1:$c;printf "%.'$DEC'f\n", log(val)/log(10) * -1}' $file > "${J_PREFIX}.P${count}.logp"
+    done 
 }
 
 # Bail out with a message
 function bail {
-	echo "JAMP ERROR: $1";
+	echo "## JAMP ERROR: $1";
 	exit 1;
+}
+
+# Run plink, if DOSAGE is true, run in a loop for all pheno's
+function runplink {
+	
+	local PHENOFILE=$1
+	
+	# Reset result files
+	PHENO_RES=
+	
+	# When running --dosage, run plink in a loop with --mpheno n
+	# --all-pheno does not work with --dosage in the current 
+	# version of plink (v1.07)
+
+	if [[ -z $DOSAGE ]]; then
+		echo plink $PLINKOPTS --pheno $PHENOFILE;
+		plink $PLINKOPTS --pheno $PHENOFILE > /dev/null || bail 'There is an error running plink'
+		# Get result files from log
+		PHENO_RES=$(sed -n 's/.*results to.*\[ \(.*\) \].*/\1/p' $OUT.log | tr '\n' ' ')
+	else
+		for (( i=1; i<=$PHENO_COUNT; i++ )); do
+			echo plink ${PLINKOPTS}.P${i} --mpheno $i --pheno $PHENOFILE;
+			plink ${PLINKOPTS}.P${i} --mpheno $i --pheno $PHENOFILE > /dev/null || bail 'There is an error running plink'
+			# Get result files from log
+			PHENO_RES="$PHENO_RES "$(sed -n 's/.*results to.*\[ \(.*\) \].*/\1/p' $OUT.P${i}.log)
+		done
+	fi
+	
+	# Check if we have results
+	if [[ -z $PHENO_RES ]]; then
+		bail "No result files, check your plink options"
+	fi
+	echo "Result files: $PHENO_RES";
 }
 
 # Process options, pass all unknown options to plink
@@ -32,7 +71,23 @@ while (( "$#" )); do
 	--pheno )
 		PHENO=$2; shift 2;;
 	--out )
-		OUT=$2; PLINKOPTS="$PLINKOPTS $1 $2"; shift 2;;
+		OUT=$2; shift 2;;
+	--mpheno )
+		bail "You specified only one phenotype with --mpheno please use --all-pheno";;
+	--sex )
+		bail "PLEASE do not have --sex with JAMP, consult the manual";;
+	--all-pheno )
+		ALLPHENO=1; shift;;
+	--dosage )
+		DOSAGE=1
+		PLINKOPTS="$PLINKOPTS $1"
+		while shift; do
+			if  [[ $1 != --* ]]; then
+				PLINKOPTS="$PLINKOPTS $1";
+			else
+				break;
+			fi
+		done;;
 	--* )
 		PLINKOPTS="$PLINKOPTS $1"
 		while shift; do
@@ -66,26 +121,47 @@ TOTALPERM=$((PERMEND-PERMSTART+1));
 # Jamp prefix
 J_PREFIX="${OUT}.jamp"
 
-echo "JAMP: Arguments"
+# Plink pheno wildcard
+PHENO_RES="${OUT}.P[1-9]*{assoc,model,assoc.linear,assoc.logistic,assoc.dosage}"
+
+# Get number of phenotypes from pheno file
+PHENO_COUNT=$(awk 'NR==1{print NF-2}' "$PHENO");
+#DOSAGE=1 #FIXME: just for testing: remove
+
+# Plink does not process --all-pheno when running --dosage
+# so we're not including --all-pheno to plinkopts when --dosage
+# is present
+if [[ -z $DOSAGE ]]; then
+	PLINKOPTS="$PLINKOPTS --all-pheno";
+fi
+
+# Add out to the end of plinkopts, important!
+PLINKOPTS="$PLINKOPTS --out $OUT";
+
+echo "## JAMP: Arguments"
 echo "# plink${PLINKOPTS}"
 echo "# pheno file: $PHENO"
+echo "# phenotypes: $PHENO_COUNT"
 echo "# permutations: $PERMSTART - $PERMEND"
+
+# Check if there are files 
+ls -l ${OUT}* 2>1 >/dev/null && bail "There are already files starting with ${OUT}., please remove first"
 
 # Check if we can write in OUT
 touch ${OUT}.log 2>/dev/null || bail "Cannot write to ${OUT}.log"
 
-echo "JAMP: Start"
+echo "## JAMP: Start"
 
 # Run plink
-echo '# Running plink'
-plink $PLINKOPTS --pheno $PHENO > /dev/null || bail 'There is an error running plink'
+echo "# Running plink";
+runplink $PHENO
 
 # Get P values
 pvals
 
 # Add P values
 echo "# Calculating P value totals"
-paste -d'+' ${OUT}.*.logp | bc > ${J_PREFIX}.sumlogp
+paste -d'+' ${J_PREFIX}.P*.logp | bc > ${J_PREFIX}.sumlogp
 
 # Split pheno file
 echo "# Splitting pheno file"
@@ -94,40 +170,39 @@ cut -d" " -f3- $PHENO > ${J_PREFIX}.$PHENO_TYPES
 
 # Split plink output, to be used later
 echo "# Split plink output"
-awk '{print $1, $2}' $(ls ${OUT}.*assoc | awk 'NR==1{print $1}') > ${J_PREFIX}.chr_snp
+awk '{print $1, $2}' $(ls $PHENO_RES | awk 'NR==1{print $1}') > ${J_PREFIX}.chr_snp
 
 # Get number of phenotypes and the associated pvals
-echo '# Get number of phenotypes and the associated pvals'
-count=
-for file in ${OUT}.*assoc; do
+echo '# Get pvals of each phenotype'
+count=0;
+for file in $PHENO_RES; do
 	count=`expr $count + 1`
-    awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print $c}' $file > "$file.pval"
+    awk -v col=P 'NR==1{for(i=1;i<=NF;i++){if($i==col){c=i;break}}} NR>1{print $c}' $file > "${J_PREFIX}.P${count}.pval"
 done
-paste -d" " ${OUT}.*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$count', $0}' > ${J_PREFIX}.npheno_pheno_x
+paste -d" " ${J_PREFIX}.P*.pval | awk 'NR==1{head="NPHENO";for(i=1;i<=NF;i++){head=head " P_P" i };print head}{print '$PHENO_COUNT', $0}' > ${J_PREFIX}.npheno_pheno_x
 
 # Main loop
 echo "# Starting main loop"
 for (( c=$PERMSTART; c<=$PERMEND; c++ ))
 do
-	echo "JAMP: Permutation $c of $PERMEND";
+	echo "## JAMP: Permutation $c of $PERMEND";
 	
 	# Generate permutated file
 	echo "# Create perm file";
     ./permutator ${J_PREFIX}.$PHENO_HEADER ${J_PREFIX}.$PHENO_TYPES ${J_PREFIX}.$PHENO_PERM $c
-
-    # Run plink
-	echo "# Run plink";
-    plink $PLINKOPTS --pheno ${J_PREFIX}.$PHENO_PERM > /dev/null
+	
+	echo "# Running plink";
+	runplink ${J_PREFIX}.$PHENO_PERM
 
     # Get P values
 	pvals
 	
     # Add P values
     echo "# Calculating P value totals"
-    paste -d'+' ${OUT}.*.logp | bc > ${J_PREFIX}.perm$c
+	paste -d'+' ${J_PREFIX}.P*.logp | bc > ${J_PREFIX}.perm$c
 done
 
-echo 'JAMP: Permutations done'
+echo '## JAMP: Permutations done'
 
 # Glue perm files together
 echo '# Glueing perm files'
@@ -141,4 +216,4 @@ awk 'BEGIN{c=1;while((getline n < "'${J_PREFIX}.sumlogp'") > 0){arr[c++] = n}pri
 # CHR SNP NPHENO P_Nn SUMLOGP NPERMS EMP_P
 paste -d" " ${J_PREFIX}.chr_snp ${J_PREFIX}.npheno_pheno_x ${J_PREFIX}.sum_perm_emp > ${J_PREFIX}.empp
 
-echo "JAMP: Done. Output in ${J_PREFIX}.empp";
+echo "## JAMP: Done. Output in ${J_PREFIX}.empp";
