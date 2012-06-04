@@ -2,7 +2,7 @@
 # Jamp 1.0
 # Arjen van Bochoven & Danielle Posthuma 1 juni 2012
 
-VERSION=1.0.8
+VERSION=1.0.9
 PHENO_HEADER="pheno_header"
 PHENO_TYPES="pheno_types"
 PHENO_PERM="pheno_perm"
@@ -144,7 +144,7 @@ echo "# phenotypes: $PHENO_COUNT"
 echo "# permutations: $PERMSTART - $PERMEND"
 
 # Check if there are files 
-ls -l ${OUT}* 2>1 >/dev/null && bail "There are already files starting with ${OUT}., please remove first"
+ls ${OUT}* &> /dev/null && bail "There are already files starting with ${OUT}., please remove first"
 
 # Check if we can write in OUT
 touch ${OUT}.log 2>/dev/null || bail "Cannot write to ${OUT}.log"
