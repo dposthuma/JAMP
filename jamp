@@ -1,0 +1,416 @@
+#!/usr/bin/env python
+# encoding: utf-8
+#
+"""
+
+"""
+
+import sys
+import math
+import re
+import os
+import glob
+import optparse
+import subprocess
+import logging
+import random
+
+logger=''
+    
+def get_version():
+    return '0.1.0'
+
+
+def pvals(prefix, pheno_result):
+    '''Pvals gets the P values from column P, calculates the log10
+    and writes the resulting val to a file with extension .logp'''
+    logger.info("# Getting P values")
+    count=0;
+    result = []
+    for fn in pheno_result:
+        count += 1
+        f = open(fn)
+        line = f.readline()
+        
+        # Get the column with the P values
+        head = line.split()
+        pcol = head.index('P')
+        ct = 0
+        for line in f:
+            pval = line.split()[pcol]
+            if pval == 'NA':
+                pval = 1
+            if count ==1:
+                result.append(math.log10(float(pval)) * -1)
+            else:
+                result[ct] += math.log10(float(pval)) * -1
+            ct += 1
+        f.close()
+        
+    logger.info("# Writing P value totals")
+    
+    try:
+        w = open(prefix + '.sumlogp', 'w')
+        for item in result:
+            w.write("%s\n" % item)
+        w.close()
+    except:
+        bail("Failed to write " + prefix + '.sumlogp')
+
+def shuffle():
+    from random import shuffle
+    x = [[i] for i in range(10)]
+    shuffle(x)
+    
+def setup_log(logfile):
+    global logger
+    
+    # Check if we can write in OUT
+    try:
+        jlog = open(logfile,'w')
+        jlog.close()
+    except:
+        print "Cannot write to " + logfile
+        exit(-1)
+        
+    # set up logging to file
+    logging.basicConfig(level=logging.DEBUG,
+        format='%(asctime)s %(name)s %(levelname)-8s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        filename=logfile,
+        filemode='w')
+        
+    # define a Handler which writes INFO messages or higher to the sys.stderr
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(name)s: %(levelname)-8s %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+    logger = logging.getLogger('JAMP')
+    
+
+def var_cb(option, opt_str, value, parser):
+    '''Variable argument parser'''
+    assert value is None
+    value = ''
+    cnt = 0
+    def floatable(str):
+        try:
+            float(str)
+            return True
+        except ValueError:
+            return False
+
+    for arg in parser.rargs:
+        # stop on --foo like options
+        if arg[:2] == "--" and len(arg) > 2:
+            break
+        # stop on -a, but not on -3 or -3.0
+        if arg[:1] == "-" and len(arg) > 1 and not floatable(arg):
+            break
+        value += " " + arg
+        cnt += 1
+    del parser.rargs[:cnt]
+    setattr(parser.values, option.dest, value)
+
+
+def bail(msg):
+    logger.error(msg)
+    print "Type " + sys.argv[0] + " --help for instructions";
+    exit(-1)
+
+def runplink(options, pheno_file, prefix, dosage = 0, pheno_count = 0):
+    
+    pheno_result = []
+    
+    if (dosage == 0):
+        command = "plink " + options + " --pheno " + pheno_file
+        logger.info(command)
+        
+        try:
+            fnull = open(os.devnull, 'w')
+            plinkrun = subprocess.Popen(command.split(), stdout = fnull, stderr = fnull, shell=False)
+            plinkrun.wait()
+            f = open(prefix + '.log')
+            text = f.read()
+            f.close()
+            pheno_result = re.findall("results to.*\[ (.*) \]", text)
+        except:
+            bail("Running plink failed")
+            
+        
+    else:
+        for i in range( 1, pheno_count):
+            plinkcall = "plink " + options + " --mpheno " + str(i) + " --pheno " + pheno_file
+            logger.info(plinkcall)
+            bail("Fixme")
+            try:
+                call([plinkcall], shell=True)
+            except:
+                bail("Running plink failed")
+        #for (( i=1; i<=$PHENO_COUNT; i++ )); do
+        #log "plink ${PLINKOPTS}.P${i} --mpheno $i --pheno $PHENOFILE";
+        #plink ${PLINKOPTS}.P${i} --mpheno $i --pheno $PHENOFILE > /dev/null || bail 'There is an error running plink'
+
+        # Get result files from log
+        #PHENO_RES="$PHENO_RES "$(sed -n 's/.*results to.*\[ \(.*\) \].*/\1/p' $OUT.P${i}.log)
+        #done
+        
+        #Check if we have results
+    if not pheno_result:
+        bail("No result files, check your plink options")
+        
+    logger.info("Result files: " + str(pheno_result))
+    
+    return pheno_result
+
+def main():
+    '''Main'''
+    
+    # Plink options b=boolean, l=list, s=string, i=integer
+    popts = {'bfile':'l', 'file':'s', 'tfile':'s', 'lfile':'s', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'s', 'covar':'s', 'covar_number':'l', 'dosage': 'l'}
+    
+    pheno_header="pheno_header"
+    pheno_types="pheno_types"
+    
+    usage = "usage: %prog [options]"
+    p = optparse.OptionParser(usage=usage)
+    
+    for popt, pkind in popts.iteritems():
+        if pkind == 'b':
+            p.add_option(
+                '--' + popt,
+                action='store_true',
+                help=optparse.SUPPRESS_HELP
+                )
+        elif pkind == 'l':
+                p.add_option(
+                '--' + popt,
+                action="callback", callback=var_cb, dest=popt,
+                help=optparse.SUPPRESS_HELP
+                )
+        elif pkind == 's':
+                p.add_option(
+                '--' + popt,
+                help=optparse.SUPPRESS_HELP
+                )
+        elif pkind == 'i':
+                p.add_option(
+                '--' + popt,
+                type="int",
+                help=optparse.SUPPRESS_HELP
+                )
+        
+    p.add_option(
+        '--covar-number', # Optparse changes covar-number to covar_number
+        help=optparse.SUPPRESS_HELP
+        )
+    p.add_option(
+        '--all-pheno',
+        action='store_true',
+        )
+    p.add_option(
+      '--jperm',
+      help='Number of permutations or permstart-permend, defaults to 100',
+      type="string",
+      default='100'
+      )
+    p.add_option(
+      '--pheno',
+      help='Path to pheno file, default plink.pheno',
+      metavar="FILE",
+      default="plink.pheno"
+      )
+    p.add_option(
+      '--out',
+      default='plink',
+      help='JAMP (and PLINK) prefix, recommended'
+      )
+    p.add_option(
+        '--version', '-V', 
+        action='store_true',
+        help='Print the version of JAMP and exit.'
+        )
+    options, arguments = p.parse_args()
+    
+    plinkopts = '--noweb '
+    dosage = 0
+    
+    # Jamp prefix
+    j_prefix = options.out + ".jamp"
+    
+    # Check if there are files with out
+    if glob.glob(options.out + '.*'):
+        print "There are already files starting with " + options.out + "., please remove them first"
+        exit(-1)
+        
+    # Setup logging        
+    setup_log(j_prefix + ".log")
+    
+    if options.version:
+        print get_version()
+        exit(0)
+    if not os.path.exists(options.pheno):
+        bail("Can't find pheno file: " + options.pheno)
+    if not options.jperm:
+        bail("Please specify permutations")
+    if options.dosage:
+        dosage = 1
+    
+    # Get permutations
+    perms = options.jperm.split('-')
+    if len(perms) == 1:
+        permstart = 1
+        permend = int(perms[0])
+    else:
+        permstart = int(perms[0])
+        permend = int(perms[1])
+    
+    permtotal = permend - permstart + 1
+    if permtotal < 1:
+        bail("Total permutations should be more than 0")
+    
+    # Split pheno file and get number of phenotypes from pheno file
+    logger.info("# Get number of phenotypes from " + options.pheno)
+    with open(options.pheno) as f:
+        pheno_count = len(f.readline().split()) - 2
+        
+    if pheno_count < 1:
+        bail("Number of phenotypes in " + options.pheno + " is 0")
+
+    # Add plinkoptions
+    for p, k in popts.iteritems():
+        v = getattr(options, p)
+        if p == 'covar_number':
+            p = 'covar-number'
+        if v:
+            plinkopts += " --" + p
+            if k != 'b':
+                plinkopts += " " + str(v)
+    
+    # Plink does not process --all-pheno when running --dosage
+    # so we're not including --all-pheno to plinkopts when --dosage
+    # is present
+    if not options.dosage:
+        plinkopts += " --all-pheno"
+    
+    # Add out to the end of plinkopts, important!
+    plinkopts += " --out " + options.out
+    
+    # Print arguments
+    logger.info("JAMP V"+get_version()+" Started")
+    logger.info("")
+    logger.info("## Arguments ##")
+    logger.info("# plinkoptions: " + plinkopts)
+    logger.info("# pheno file  : " + options.pheno)
+    logger.info("# phenotypes  : " + str(pheno_count))
+    logger.info("# permutations: " + str(permstart) + ' - ' + str(permend))
+    
+    pheno_result = runplink(plinkopts, options.pheno, options.out, dosage, pheno_count)
+    
+    pvals(j_prefix, pheno_result)
+    
+    # Split plink output, to be used later
+    logger.info("# Split plink output")
+    with open(pheno_result[0],'r') as f:
+        with open(j_prefix + ".chr_snp", 'w') as w:
+            for line in f:
+                w.write(" ".join(line.split()[:2]) + "\n")
+            
+    logger.info('# Get pvals of each phenotype')
+    first = 1
+    vals = []
+    for fn in pheno_result:
+        with open(fn, 'r') as f:
+            line = f.readline()
+            pcol = line.split().index('P')
+            c = 0
+            for line in f:
+                if first == 1:
+                    vals.append([line.split()[pcol]])
+                else:
+                    vals[c].append(line.split()[pcol])
+                c += 1
+            first = 0
+    
+    logger.info('# Writing ' + j_prefix + '.npheno_pheno_x')
+    with open(j_prefix + '.npheno_pheno_x', 'w') as f:
+        f.write("NPHENO " + ' '.join(['P_P' + elt for elt in map(str, range(1, pheno_count + 1))]) + "\n")
+        for item in vals:
+            f.write(str(pheno_count) + " " + (" ".join(item)) + "\n")
+
+    logger.info("## Starting permutations")
+    # read phenotypes
+    head = []
+    vals = []
+    with open(options.pheno) as f:
+        for line in f:
+            arr = line.split()
+            head.append(arr[:2])
+            vals.append(arr[2:])
+    c = permstart
+    while c <= permend:
+        logger.info("# Permutation %s of %s" % (c, permend))
+        
+        # Initialize seed
+        random.seed(c)
+        
+        # Shuffle phenotypes
+        random.shuffle(vals)
+        
+        # write to file
+        with open(j_prefix + '.pheno_perm', 'w') as f:
+            for x, y in zip(head, vals):
+                f.write(" ".join(x) + " " + " ".join(y) + "\n")
+            
+        # Run plink
+        pheno_result = runplink(plinkopts, j_prefix + '.pheno_perm', options.out, dosage, pheno_count)
+        
+        # Get pvals
+        pvals("%s.perm%s" % (j_prefix, c), pheno_result)
+        
+        c += 1
+    # Clear large arrays
+    vals = head = ''
+    
+    logger.info("## JAMP: Permutations done")
+    
+    # Load non-permuted sumlogp
+    sumlogp = []
+    with open(j_prefix + '.sumlogp') as f:
+        for i in f: sumlogp.append(float(i.strip()))
+    
+    # Loop through permuted logp files and count and store max logp per perm
+    emp = [0]*len(sumlogp)
+    maxlist=[]
+    for p in glob.glob("%s.perm*" % j_prefix):
+        with open(p) as f:
+            maxval=0
+            for i,s in enumerate(sumlogp):
+                pp = float(f.next().strip())
+                emp[i] += pp >= s
+                maxval = max(maxval, pp)
+            maxlist.append(maxval)
+    #print maxlist
+    fpermtotal = float(permtotal)
+    
+    for x, y in enumerate(emp):
+        c=0
+        for i in maxlist:
+            c += int(i >= sumlogp[x])
+        emp[x] = "%s %s %s %s" % (sumlogp[x], permtotal, emp[x]/fpermtotal, c/fpermtotal)
+        print emp[x]
+    # Add header
+    emp.insert(0, 'NPERMS EMP_P EMP_P_COR')
+    with open("%s.empp" % j_prefix, 'w') as w:
+        with open("%s.chr_snp" % j_prefix) as csnp:
+            with open("%s.npheno_pheno_x" % j_prefix) as f:
+                for i in emp:
+                    w.write("%s %s %s\n" % (csnp.next().strip(), f.next().strip(), i.strip()))
+        
+    logger.info("## JAMP: Done. Processing took $ELAPSED. Output in ${J_PREFIX}.empp")
+    
+        
+if __name__ == '__main__':
+    main()
+
