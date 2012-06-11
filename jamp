@@ -15,6 +15,7 @@ import optparse
 import subprocess
 import logging
 import random
+import time
 
 logger=''
     
@@ -84,7 +85,7 @@ def setup_log(logfile):
     # define a Handler which writes INFO messages or higher to the sys.stderr
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(name)s: %(levelname)-8s %(message)s')
+    formatter = logging.Formatter('%(message)s')
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
     logger = logging.getLogger('JAMP')
@@ -128,26 +129,21 @@ def runplink(options, pheno_file, prefix, dosage = 0, pheno_count = 0):
         command = "plink %s --pheno %s --out %s" % (options, pheno_file, prefix)
         logger.info(command)
         
-        try:
-            fnull = open(os.devnull, 'w')
-            subprocess.Popen(command.split(), stdout = fnull, shell=False).wait()
-            with open(prefix + '.log') as f:
-                pheno_result = re.findall("results to.*\[ (.*) \]", f.read())
-        except:
+        fnull = open(os.devnull, 'w')
+        if subprocess.call(command.split(), stdout = fnull, shell=False):
             bail("Running plink failed")
-        
+        with open(prefix + '.log') as f:
+            pheno_result = re.findall("results to.*\[ (.*) \]", f.read())        
     else:
         pheno_result = []
         for i in range( 1, pheno_count):
             command = "plink %s --mpheno %s --pheno %s --out %s.P%s" % (options, i, pheno_file, prefix, i)
             logger.info(command)
-            try:
-                fnull = open(os.devnull, 'w')
-                subprocess.Popen(command.split(), stdout = fnull, shell=False).wait()
-                with open("%s.P%s.log" % (prefix, i)) as f:
-                    pheno_result += re.findall("results to.*\[ (.*) \]", f.read())
-            except:
+            fnull = open(os.devnull, 'w')
+            if subprocess.call(command.split(), stdout = fnull, shell=False):
                 bail("Running plink failed")
+            with open("%s.P%s.log" % (prefix, i)) as f:
+                pheno_result += re.findall("results to.*\[ (.*) \]", f.read())
 
     #Check if we have results
     if not pheno_result:
@@ -159,6 +155,7 @@ def runplink(options, pheno_file, prefix, dosage = 0, pheno_count = 0):
 
 def main():
     '''Main'''
+    start = time.time()
     
     # Plink options b=boolean, l=list, s=string, i=integer
     popts = {'bfile':'l', 'file':'s', 'tfile':'s', 'lfile':'s', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'s', 'covar':'s', 'covar_number':'l', 'dosage': 'l', 'silent': 'b'}
@@ -244,13 +241,18 @@ def main():
     # Setup logging        
     setup_log(j_prefix + ".log")
     
+    vers = "## JAMP V%s Started ##" % get_version()
+    logger.info("#"*len(vers))
+    logger.info(vers)
+    logger.info("#"*len(vers))
+    
+    
     if not os.path.exists(options.pheno):
         bail("Can't find pheno file: " + options.pheno)
     if not options.jperm:
         bail("Please specify permutations")
     if options.dosage:
         dosage = 1
-        plinkopts += "--dosage %s " % options.dosage.strip()
 
     # Get permutations
     perms = options.jperm.split('-')
@@ -290,7 +292,6 @@ def main():
         plinkopts += " --all-pheno"
 
     # Print arguments
-    logger.info("JAMP V"+get_version()+" Started")
     logger.info("")
     logger.info("## Arguments ##")
     logger.info("# plinkoptions: " + plinkopts)
@@ -391,7 +392,7 @@ def main():
         for i in maxlist:
             c += int(i >= sumlogp[x])
         emp[x] = "%s %s %s %s" % (sumlogp[x], permtotal, emp[x]/fpermtotal, c/fpermtotal)
-        print emp[x]
+
     # Add header
     emp.insert(0, 'NPERMS EMP_P EMP_P_COR')
     with open("%s.empp" % j_prefix, 'w') as w:
@@ -400,7 +401,7 @@ def main():
                 for i in emp:
                     w.write("%s %s %s\n" % (csnp.next().strip(), f.next().strip(), i.strip()))
         
-    logger.info("## JAMP: Done. Processing took $ELAPSED. Output in ${J_PREFIX}.empp")
+    logger.info("## JAMP: Done. Processing took %.2f sec. Output in %s.empp" % (time.time() - start, j_prefix))
     
         
 if __name__ == '__main__':
