@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.17'
+VERSION='1.0.18'
 
 import sys
 import math
@@ -152,7 +152,7 @@ def runplink(options, pheno_file, prefix, dosage = 0, pheno_count = 0):
             pheno_result = re.findall("results to.*\[ (.*) \]", f.read())        
     else:
         pheno_result = []
-        for i in range( 1, pheno_count):
+        for i in range( 1, pheno_count + 1):
             command = "plink %s --mpheno %s --pheno %s --out %s.P%s" % (options, i, pheno_file, prefix, i)
             logger.info(command)
             try:
