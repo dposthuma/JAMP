@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.18'
+VERSION='1.0.19'
 
 import sys
 import math
@@ -45,6 +45,7 @@ def pvals(prefix, pheno_result):
     logger.info("# Getting P values")
     count=0;
     result = []
+    logp_files = [] # Store logp files
     for fn in pheno_result:
         count += 1
         f = open(fn)
@@ -72,13 +73,11 @@ def pvals(prefix, pheno_result):
         for item in result:
             w.write("%s\n" % item)
         w.close()
+        logp_files.append(prefix + '.sumlogp')
     except:
         bail("Failed to write " + prefix + '.sumlogp')
-
-def shuffle():
-    from random import shuffle
-    x = [[i] for i in range(10)]
-    shuffle(x)
+        
+    return logp_files
     
 def setup_log(logfile):
     global logger
@@ -429,6 +428,7 @@ def main():
             head.append(arr[:2])
             vals.append(arr[2:])
     c = permstart
+    logp_files = []
     while c <= permend:
         logger.info("# Permutation %s of %s" % (c, permend))
         
@@ -447,14 +447,14 @@ def main():
         pheno_result = runplink(plinkopts, j_prefix + '.pheno_perm', options.out, dosage, pheno_count)
         
         # Get pvals
-        pvals("%s.perm%s" % (j_prefix, c), pheno_result)
+        logp_files += pvals("%s.perm%s" % (j_prefix, c), pheno_result)
         
         c += 1
     # Clear large arrays
     vals = head = ''
     
     logger.info("## JAMP: Permutations done")
-    
+        
     # Load non-permuted sumlogp
     sumlogp = []
     with open(j_prefix + '.sumlogp') as f:
@@ -463,7 +463,7 @@ def main():
     # Loop through permuted logp files and count and store max logp per perm
     emp = [0]*len(sumlogp)
     maxlist=[]
-    for p in glob.glob("%s.perm*" % j_prefix):
+    for p in logp_files:
         with open(p) as f:
             maxval=0
             for i,s in enumerate(sumlogp):
