@@ -4,13 +4,12 @@
 """
 
 """
-VERSION='1.0.19'
+VERSION='1.0.20'
 
 import sys
 import math
 import re
 import os
-import glob
 import optparse
 import subprocess
 import logging
@@ -317,11 +316,7 @@ def main():
     if options.jmerge != None:
         jmerge(options.jmerge, j_prefix + '.merged')
         exit(0)
-    
-    # Check if there are files with out (apart from log)
-    if len(glob.glob(options.out + '.*')) > 1:
-        bail("There are already files starting with %s., please remove them first" % options.out)
-    
+        
     vers = "## JAMP V%s Started ##" % get_version()
     logger.info("#"*len(vers))
     logger.info(vers)
@@ -384,40 +379,51 @@ def main():
     logger.info("# phenotypes  : %s" % pheno_count)
     logger.info("# permutations: %s-%s" % (permstart,permend))
     
-    # Run plink with the correct pheno file
-    pheno_result = runplink(plinkopts, options.pheno, options.out, dosage, pheno_count)
-    
-    pvals(j_prefix, pheno_result)
-    
-    # Split plink output, to be used later
-    logger.info("# Split plink output")
-    with open(pheno_result[0],'r') as f:
-        with open(j_prefix + ".chr_snp", 'w') as w:
-            for line in f:
-                w.write(" ".join(line.split()[:2]) + "\n")
+    # Check if there are already result files for first run
+    resultfiles = [j_prefix + '.chr_snp', j_prefix +'.npheno_pheno_x', j_prefix +'.sumlogp']
+    do_first_run = False
+    for path in resultfiles:
+        if not os.path.exists(path):
+            do_first_run = True
             
-    logger.info('# Get pvals of each phenotype')
-    first = 1
-    vals = []
-    for fn in pheno_result:
-        with open(fn, 'r') as f:
-            line = f.readline()
-            pcol = line.split().index('P')
-            c = 0
-            for line in f:
-                if first == 1:
-                    vals.append([line.split()[pcol]])
-                else:
-                    vals[c].append(line.split()[pcol])
-                c += 1
-            first = 0
+    if do_first_run:
+        # Run plink with the correct pheno file
+        pheno_result = runplink(plinkopts, options.pheno, options.out, dosage, pheno_count)
     
-    logger.info('# Writing ' + j_prefix + '.npheno_pheno_x')
-    with open(j_prefix + '.npheno_pheno_x', 'w') as f:
-        f.write("NPHENO " + ' '.join(['P_P' + elt for elt in map(str, range(1, pheno_count + 1))]) + "\n")
-        for item in vals:
-            f.write(str(pheno_count) + " " + (" ".join(item)) + "\n")
-
+        pvals(j_prefix, pheno_result)
+    
+        # Split plink output, to be used later
+        logger.info("# Split plink output")
+        with open(pheno_result[0],'r') as f:
+            with open(j_prefix + ".chr_snp", 'w') as w:
+                for line in f:
+                    w.write(" ".join(line.split()[:2]) + "\n")
+            
+        logger.info('# Get pvals of each phenotype')
+        first = 1
+        vals = []
+        for fn in pheno_result:
+            with open(fn, 'r') as f:
+                line = f.readline()
+                pcol = line.split().index('P')
+                c = 0
+                for line in f:
+                    if first == 1:
+                        vals.append([line.split()[pcol]])
+                    else:
+                        vals[c].append(line.split()[pcol])
+                    c += 1
+                first = 0
+    
+        logger.info('# Writing ' + j_prefix + '.npheno_pheno_x')
+        with open(j_prefix + '.npheno_pheno_x', 'w') as f:
+            f.write("NPHENO " + ' '.join(['P_P' + elt for elt in map(str, range(1, pheno_count + 1))]) + "\n")
+            for item in vals:
+                f.write(str(pheno_count) + " " + (" ".join(item)) + "\n")
+    else:
+        logger.info("# Found first run files %s, skipping to permutations" % " ".join(resultfiles))
+    ###
+    
     logger.info("## Starting permutations")
     # read phenotypes
     head = []
