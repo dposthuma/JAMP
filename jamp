@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.20'
+VERSION='1.0.21'
 
 import sys
 import math
@@ -33,6 +33,10 @@ adaptive_thresholds = {
 
 # Plink options b=boolean, l=long
 popts = {'bfile':'l', 'file':'l', 'tfile':'l', 'lfile':'l', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'l', 'covar':'l', 'covar_number':'l', 'dosage': 'l', 'silent': 'b'}
+
+# Extensions of resultfiles from the first run. Jamp will check if these exist
+# when running --jstart
+resultfiles = ['jamp.chr_snp', 'jamp.npheno_pheno_x', 'jamp.sumlogp']
     
 def get_version():
     return VERSION
@@ -165,7 +169,7 @@ def runplink(options, pheno_file, prefix, dosage = 0, pheno_count = 0):
     if not pheno_result:
         bail("No result files, check your plink options")
         
-    logger.info("Result files: " + str(pheno_result))
+    logger.info("# Result files: " + str(pheno_result))
     
     return pheno_result
     
@@ -217,6 +221,10 @@ def parse_options():
         '--version', '-V', 
         action='store_true',
         help='Print the version of JAMP and exit.'
+        )
+    p.add_option(
+        '--jstart',
+        help='Prefix for %s' % " ".join(resultfiles)
         )
     p.add_option(
         '--adaptive',
@@ -379,14 +387,8 @@ def main():
     logger.info("# phenotypes  : %s" % pheno_count)
     logger.info("# permutations: %s-%s" % (permstart,permend))
     
-    # Check if there are already result files for first run
-    resultfiles = [j_prefix + '.chr_snp', j_prefix +'.npheno_pheno_x', j_prefix +'.sumlogp']
-    do_first_run = False
-    for path in resultfiles:
-        if not os.path.exists(path):
-            do_first_run = True
             
-    if do_first_run:
+    if not options.jstart:
         # Run plink with the correct pheno file
         pheno_result = runplink(plinkopts, options.pheno, options.out, dosage, pheno_count)
     
@@ -421,6 +423,11 @@ def main():
             for item in vals:
                 f.write(str(pheno_count) + " " + (" ".join(item)) + "\n")
     else:
+        # Check if there are already result files for first run
+        for ext in resultfiles:
+            path = options.jstart + '.' + ext
+            if not os.path.exists(path):
+                bail("--jstart defined, but %s not found." % path)
         logger.info("# Found first run files %s, skipping to permutations" % " ".join(resultfiles))
     ###
     
