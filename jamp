@@ -32,7 +32,7 @@ adaptive_thresholds = {
     1000000000: 0.0000002}
 
 # Plink options b=boolean, l=long
-popts = {'bfile':'l', 'file':'l', 'tfile':'l', 'lfile':'l', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'l', 'covar':'l', 'covar_number':'l', 'dosage': 'l', 'silent': 'b'}
+popts = {'bfile':'l', 'file':'l', 'tfile':'l', 'lfile':'l', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'l', 'covar':'l', 'covar_number':'l', 'dosage': 'l', 'silent': 'b', 'chr': 'l', 'extract': 'l', 'from': 'l', 'to': 'l', 'snp': 'l', 'window': 'l', 'snps': 'l', 'from-kb': 'l', 'to-kb': 'l', 'from-bp': 'l', 'to-bp': 'l', 'from-mb': 'l', 'to-mb': 'l', 'thin': 'l', 'range': 'b', 'attrib': 'l', 'gene': 'l', 'exclude': 'l'}
 
 # Extensions of resultfiles from the first run. Jamp will check if these exist
 # when running --jstart
@@ -48,7 +48,9 @@ def pvals(prefix, pheno_result):
     logger.info("# Getting P values")
     count=0;
     result = []
+    min_p = []
     logp_files = [] # Store logp files
+    min_p_files = [] # Store min_p files
     for fn in pheno_result:
         count += 1
         f = open(fn)
@@ -64,13 +66,16 @@ def pvals(prefix, pheno_result):
                 pval = 1
             if count ==1:
                 result.append(math.log10(float(pval)) * -1)
+                min_p.append(float(pval))
             else:
                 result[ct] += math.log10(float(pval)) * -1
+                min_p[ct] = min(min_p[ct], float(pval))
             ct += 1
         f.close()
         
     logger.info("# Writing P value totals")
     
+    # Write sumplogp
     try:
         w = open(prefix + '.sumlogp', 'w')
         for item in result:
@@ -79,8 +84,17 @@ def pvals(prefix, pheno_result):
         logp_files.append(prefix + '.sumlogp')
     except:
         bail("Failed to write " + prefix + '.sumlogp')
+    
+    try:
+        w = open(prefix + '.min_p', 'w')
+        for item in min_p:
+            w.write("%s\n" % item)
+        w.close()
+        min_p_files.append(prefix + '.min_p')
+    except:
+        bail("Failed to write " + prefix + '.min_p')
         
-    return logp_files
+    return logp_files, min_p_files
     
 def setup_log(logfile):
     global logger
@@ -206,6 +220,11 @@ def parse_options():
       type="string",
       default='100'
       )
+    p.add_option(
+        '--jpmin',
+        help='todo: Some explanation',
+        action='store_true',
+    )
     p.add_option(
       '--pheno',
       help='Path to pheno file, default plink.pheno',
@@ -355,6 +374,9 @@ def main():
     if permtotal < 1:
         bail("Total permutations should be more than 0")
     
+    # Float of permtotal used for float calculations
+    fpermtotal = float(permtotal)
+    
     # Split pheno file and get number of phenotypes from pheno file
     logger.info("# Get number of phenotypes from " + options.pheno)
     with open(options.pheno) as f:
@@ -442,6 +464,7 @@ def main():
             vals.append(arr[2:])
     c = permstart
     logp_files = []
+    min_p_files = []
     while c <= permend:
         logger.info("# Permutation %s of %s" % (c, permend))
         
@@ -460,13 +483,19 @@ def main():
         pheno_result = runplink(plinkopts, j_prefix + '.pheno_perm', options.out, dosage, pheno_count)
         
         # Get pvals
-        logp_files += pvals("%s.perm%s" % (j_prefix, c), pheno_result)
+        logp, min_p = pvals("%s.perm%s" % (j_prefix, c), pheno_result)
+        
+        # Add filenames to array
+        logp_files += logp
+        min_p_files += min_p
         
         c += 1
     # Clear large arrays
     vals = head = ''
     
     logger.info("## JAMP: Permutations done")
+    
+    ########################## SUMLOGP ###########################
         
     # Load non-permuted sumlogp
     sumlogp = []
@@ -485,22 +514,57 @@ def main():
                 maxval = max(maxval, pp)
             maxlist.append(maxval)
     #print maxlist
-    fpermtotal = float(permtotal)
     
     # Write maxlist
-    with open("%s.maxempp" % j_prefix, 'w') as w:
+    with open("%s.maxsumlogp" % j_prefix, 'w') as w:
         for item in maxlist:
           w.write("%s " % item)
         w.write("\n")
+        
+    ########################### MIN_P ###########################
     
+    # Load non-permuted min_p
+    min_p = []
+    with open(j_prefix + '.min_p') as f:
+        for i in f: min_p.append(float(i.strip()))
+    
+    minp = [0]*len(min_p)
+    minlist=[]
+    for p in min_p_files:
+        with open(p) as f:
+            minval=1
+            for i,s in enumerate(min_p):
+                pp = float(f.next().strip())
+                minp[i] += pp <= s
+                minval = min(minval, pp)
+            minlist.append(minval)
+    #print minp
+    
+    # Write minlist
+    with open("%s.minpmin" % j_prefix, 'w') as w:
+        for item in maxlist:
+          w.write("%s " % item)
+        w.write("\n")
+
+    ########################### BUILD ###########################
+
+        
     for x, y in enumerate(emp):
         c=0
+        m=0
         for i in maxlist:
             c += int(i >= sumlogp[x])
-        emp[x] = "%s %s %s %s" % (sumlogp[x], permtotal, emp[x]/fpermtotal, c/fpermtotal)
+        for i in minlist:
+            m += int(i <= min_p[x])
+        emp[x] = "%s %s %s %s %s %s" % (sumlogp[x], permtotal, emp[x]/fpermtotal, c/fpermtotal, minp[x]/fpermtotal, m/fpermtotal)
 
     # Add header
-    emp.insert(0, 'SUMLOGP NPERMS EMP_P EMP_P_COR')
+    emp.insert(0, 'SUMLOGP NPERMS EMP_P EMP_P_COR EMP_Pmin EMP_Pmincorr')
+    
+    
+    
+    ########################### WRITE EMPP ###########################
+    
     with open("%s.empp" % j_prefix, 'w') as w:
         with open("%s.chr_snp" % j_prefix) as csnp:
             with open("%s.npheno_pheno_x" % j_prefix) as f:
