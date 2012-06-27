@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.21'
+VERSION='1.0.23'
 
 import sys
 import math
@@ -274,13 +274,17 @@ def jmerge(filelist, outfile):
             # Get header
             head = f.readline().split()
             nperms_col = head.index('NPERMS')
+            mergecols = len(head) - nperms_col - 1
+            logger.info("Found %s cols" % mergecols)
             emp_col = nperms_col + 1
             emp_c_col = nperms_col + 2
+            empminp_col = nperms_col + 3
+            empminp_c_col = nperms_col + 4
             # Get the rest
             for line in f:
                 row = line.split()
                 perm = int(row[nperms_col])
-                arr.append(row[:nperms_col] + [perm, float(row[emp_col]) * perm, float(row[emp_c_col]) * perm])
+                arr.append(row[:nperms_col] + [perm, float(row[emp_col]) * perm, float(row[emp_c_col]) * perm, float(row[empminp_col]) * perm, float(row[empminp_c_col]) * perm])
     except:
         bail("Error reading %s" % file)
     
@@ -299,6 +303,8 @@ def jmerge(filelist, outfile):
                 arr[c][nperms_col] += perm
                 arr[c][emp_col] += float(row[emp_col]) * perm
                 arr[c][emp_c_col] += float(row[emp_c_col]) * perm
+                arr[c][empminp_col] += float(row[empminp_col]) * perm
+                arr[c][empminp_c_col] += float(row[empminp_c_col]) * perm
                 c += 1
     try:
         with open(outfile, 'w') as w:
@@ -307,6 +313,8 @@ def jmerge(filelist, outfile):
                 perm = i[nperms_col]
                 i[emp_col] = i[emp_col] / perm
                 i[emp_c_col] = i[emp_c_col] / perm
+                i[empminp_col] = i[empminp_col] / perm
+                i[empminp_c_col] = i[empminp_c_col] / perm
                 w.write("%s\n" % " ".join(map(str, i)))    
     except:
         bail("Failed to write to %s" % outfile)
