@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.23'
+VERSION='1.0.24'
 
 import sys
 import math
@@ -18,6 +18,9 @@ import time
 
 # Global logger object
 logger=''
+
+# Global prefix
+j_prefix=''
 
 # Adaptive thresholds: nperm: treshold
 adaptive_thresholds = {
@@ -33,6 +36,9 @@ adaptive_thresholds = {
 
 # Plink options b=boolean, l=long
 popts = {'bfile':'l', 'file':'l', 'tfile':'l', 'lfile':'l', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'l', 'covar':'l', 'covar_number':'l', 'dosage': 'l', 'silent': 'b', 'chr': 'l', 'extract': 'l', 'from': 'l', 'to': 'l', 'snp': 'l', 'window': 'l', 'snps': 'l', 'from-kb': 'l', 'to-kb': 'l', 'from-bp': 'l', 'to-bp': 'l', 'from-mb': 'l', 'to-mb': 'l', 'thin': 'l', 'range': 'b', 'attrib': 'l', 'gene': 'l', 'exclude': 'l'}
+
+# Default plink options
+plinkopts = '--noweb --silent '
 
 # Extensions of resultfiles from the first run. Jamp will check if these exist
 # when running --jstart
@@ -233,7 +239,7 @@ def parse_options():
       )
     p.add_option(
       '--out',
-      default='plink',
+      default='multi',
       help='JAMP (and PLINK) prefix, recommended'
       )
     p.add_option(
@@ -322,66 +328,15 @@ def jmerge(filelist, outfile):
     logger.info("Done: wrote merged file to %s" % outfile)
     
     exit(0)
-    
-############################### Main ###############################
 
-def main():
-    '''Main'''
-    start = time.time()
-    
-    # Variables
-    pheno_header="pheno_header"
-    pheno_types="pheno_types"
-    plinkopts = '--noweb --silent '
-    dosage = 0
-    
-    # Parse options
-    options = parse_options()
-    
-    # Jamp prefix
-    j_prefix = options.out + ".jamp"
-    
-    # Setup logging        
-    setup_log(j_prefix + ".log")
-    
-    if options.version:
-        print get_version()
-        exit(0)
-    
-    if options.jmerge != None:
-        jmerge(options.jmerge, j_prefix + '.merged')
-        exit(0)
-        
-    vers = "## JAMP V%s Started ##" % get_version()
-    logger.info("#"*len(vers))
-    logger.info(vers)
-    logger.info("#"*len(vers))
-    
-    
-    if not os.path.exists(options.pheno):
-        bail("Can't find pheno file: " + options.pheno)
-    if not options.jperm:
-        bail("Please specify permutations")
-    if options.dosage:
-        dosage = 1
-    
-    if options.adaptive:
-        print "Adaptive run"
-        exit(0)
+def permute(options, permstart, permend):
 
-    # Get permutations
-    perms = options.jperm.split('-')
-    if len(perms) == 1:
-        permstart = 1
-        permend = int(perms[0])
-    else:
-        permstart = int(perms[0])
-        permend = int(perms[1])
-    
+    global plinkopts
+
     permtotal = permend - permstart + 1
     if permtotal < 1:
         bail("Total permutations should be more than 0")
-    
+
     # Float of permtotal used for float calculations
     fpermtotal = float(permtotal)
     
@@ -406,7 +361,7 @@ def main():
     # Plink does not process --all-pheno when running --dosage
     # so we're not including --all-pheno to plinkopts when --dosage
     # is present
-    if not dosage:
+    if not options.dosage:
         plinkopts += " --all-pheno"
 
     # Print arguments
@@ -420,7 +375,7 @@ def main():
             
     if not options.jstart:
         # Run plink with the correct pheno file
-        pheno_result = runplink(plinkopts, options.pheno, options.out, dosage, pheno_count)
+        pheno_result = runplink(plinkopts, options.pheno, options.out, options.dosage, pheno_count)
     
         pvals(j_prefix, pheno_result)
     
@@ -488,7 +443,7 @@ def main():
                 f.write(" ".join(h) + " " + " ".join(vals[i]) + "\n")
             
         # Run plink
-        pheno_result = runplink(plinkopts, j_prefix + '.pheno_perm', options.out, dosage, pheno_count)
+        pheno_result = runplink(plinkopts, j_prefix + '.pheno_perm', options.out, options.dosage, pheno_count)
         
         # Get pvals
         logp, min_p = pvals("%s.perm%s" % (j_prefix, c), pheno_result)
@@ -579,8 +534,70 @@ def main():
                 for i in emp:
                     w.write("%s %s %s\n" % (csnp.next().strip(), f.next().strip(), i.strip()))
         
-    logger.info("## JAMP: Done. Processing took %.2f sec. Output in %s.empp" % (time.time() - start, j_prefix))
     
+############################### Main ###############################
+
+def main():
+    '''Main'''
+
+    global j_prefix
+    
+    start = time.time()
+    
+    # Variables
+    pheno_header="pheno_header"
+    pheno_types="pheno_types"
+    
+    # Parse options
+    options = parse_options()
+    
+    # Jamp prefix
+    j_prefix = options.out + ".jamp"
+    
+    # Setup logging        
+    setup_log(j_prefix + ".log")
+    
+    if options.version:
+        print get_version()
+        exit(0)
+    
+    if options.jmerge != None:
+        jmerge(options.jmerge, j_prefix + '.merged')
+        exit(0)
+        
+    vers = "## JAMP V%s Started ##" % get_version()
+    logger.info("#"*len(vers))
+    logger.info(vers)
+    logger.info("#"*len(vers))
+    
+    
+    if not os.path.exists(options.pheno):
+        bail("Can't find pheno file: " + options.pheno)
+    if not options.jperm:
+        bail("Please specify permutations")
+    if options.dosage:
+        options.dosage = 1
+    else:
+        options.dosage = 0
+    
+    if options.adaptive:
+        print "Adaptive run"
+        exit(0)
+
+    # Get permutations
+    perms = options.jperm.split('-')
+    if len(perms) == 1:
+        permstart = 1
+        permend = int(perms[0])
+    else:
+        permstart = int(perms[0])
+        permend = int(perms[1])
+        
+    # Call permutator
+    permute(options, permstart, permend)
+
+    logger.info("## JAMP: Done. Processing took %.2f sec. Output in %s.empp" % (time.time() - start, j_prefix))
+  
         
 if __name__ == '__main__':
     main()
