@@ -4,7 +4,7 @@
 """
 
 """
-VERSION='1.0.24'
+VERSION='1.0.25'
 
 import sys
 import math
@@ -23,22 +23,22 @@ logger=''
 j_prefix=''
 
 # Adaptive thresholds: nperm: treshold
-adaptive_thresholds = {
-    10: 0.79,
-    100: 0.38,
-    1000: 0.06,
-    10000: 0.006,
-    100000: 0.002,
-    1000000: 0.0002,
-    10000000: 0.00002,
-    100000000: 0.000002,
-    1000000000: 0.0000002}
+adaptive_thresholds = [
+    (10, 0.79),
+    (100, 0.38),
+    (1000, 0.06),
+    (10000, 0.006),
+    (100000, 0.002),
+    (1000000, 0.0002),
+    (10000000, 0.00002),
+    (100000000, 0.000002),
+    (1000000000, 0.0000002)]
 
 # Plink options b=boolean, l=long
 popts = {'bfile':'l', 'file':'l', 'tfile':'l', 'lfile':'l', 'assoc':'b', 'linear':'b', 'logistic':'b', 'trend':'b', 'model':'b', 'fam':'l', 'covar':'l', 'covar_number':'l', 'dosage': 'l', 'silent': 'b', 'chr': 'l', 'extract': 'l', 'from': 'l', 'to': 'l', 'snp': 'l', 'window': 'l', 'snps': 'l', 'from-kb': 'l', 'to-kb': 'l', 'from-bp': 'l', 'to-bp': 'l', 'from-mb': 'l', 'to-mb': 'l', 'thin': 'l', 'range': 'b', 'attrib': 'l', 'gene': 'l', 'exclude': 'l'}
 
 # Default plink options
-plinkopts = '--noweb --silent '
+plinkdefaults = '--noweb --silent '
 
 # Extensions of resultfiles from the first run. Jamp will check if these exist
 # when running --jstart
@@ -55,8 +55,6 @@ def pvals(prefix, pheno_result):
     count=0;
     result = []
     min_p = []
-    logp_files = [] # Store logp files
-    min_p_files = [] # Store min_p files
     for fn in pheno_result:
         count += 1
         f = open(fn)
@@ -87,7 +85,6 @@ def pvals(prefix, pheno_result):
         for item in result:
             w.write("%s\n" % item)
         w.close()
-        logp_files.append(prefix + '.sumlogp')
     except:
         bail("Failed to write " + prefix + '.sumlogp')
     
@@ -96,11 +93,10 @@ def pvals(prefix, pheno_result):
         for item in min_p:
             w.write("%s\n" % item)
         w.close()
-        min_p_files.append(prefix + '.min_p')
     except:
         bail("Failed to write " + prefix + '.min_p')
         
-    return logp_files, min_p_files
+    return prefix + '.sumlogp', prefix + '.min_p'
     
 def setup_log(logfile):
     global logger
@@ -331,8 +327,6 @@ def jmerge(filelist, outfile):
 
 def permute(options, permstart, permend):
 
-    global plinkopts
-
     permtotal = permend - permstart + 1
     if permtotal < 1:
         bail("Total permutations should be more than 0")
@@ -349,6 +343,7 @@ def permute(options, permstart, permend):
         bail("Number of phenotypes in " + options.pheno + " is 0")
 
     # Add plinkoptions
+    plinkopts = plinkdefaults
     for p, k in popts.iteritems():
         v = getattr(options, p)
         if p == 'covar_number':
@@ -449,13 +444,13 @@ def permute(options, permstart, permend):
         logp, min_p = pvals("%s.perm%s" % (j_prefix, c), pheno_result)
         
         # Add filenames to array
-        logp_files += logp
-        min_p_files += min_p
+        logp_files.append(logp)
+        min_p_files.append(min_p)
         
         c += 1
     # Clear large arrays
     vals = head = ''
-    
+
     logger.info("## JAMP: Permutations done")
     
     ########################## SUMLOGP ###########################
@@ -541,7 +536,7 @@ def main():
     '''Main'''
 
     global j_prefix
-    
+
     start = time.time()
     
     # Variables
@@ -582,6 +577,14 @@ def main():
     
     if options.adaptive:
         print "Adaptive run"
+        permstart = 0
+        for [permend, threshold] in adaptive_thresholds:
+            print "Running %s permutations, threshold %s" % (permend, threshold)
+            permute(options, permstart, permend)
+            # Select best hits, store in file and permute next batch with --extract filepath as option to plink
+            # emp_p and emp_pmin should be below the threshold in the empp file
+            # only store the snp names 1 per line
+            # options.extract = 'filename'
         exit(0)
 
     # Get permutations
@@ -593,7 +596,7 @@ def main():
         permstart = int(perms[0])
         permend = int(perms[1])
         
-    # Call permutator
+    # Call permute
     permute(options, permstart, permend)
 
     logger.info("## JAMP: Done. Processing took %.2f sec. Output in %s.empp" % (time.time() - start, j_prefix))
