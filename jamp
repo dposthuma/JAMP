@@ -4,12 +4,13 @@
 """
 
 """
-VERSION='1.0.25'
+VERSION='1.0.26'
 
 import sys
 import math
 import re
 import os
+import glob
 import optparse
 import subprocess
 import logging
@@ -598,6 +599,22 @@ def main():
         
     # Call permute
     permute(options, permstart, permend)
+
+    # Clean up
+    logger.info("## JAMP: Cleaning up...")
+
+    # Jamp intermediate files
+    jamp_files = ['chr_snp', 'maxsumlogp', 'min_p', 'minpmin', 'npheno_pheno_x','pheno_perm', 'sumlogp']
+    for i in jamp_files:
+        os.unlink(j_prefix + "." + i)
+
+    # Perm files
+    for i in glob.glob(j_prefix + '.perm*'):
+        os.unlink (i)
+    
+    # Plink files
+    for i in glob.glob(options.out + '.P*'):
+        os.unlink (i)
 
     logger.info("## JAMP: Done. Processing took %.2f sec. Output in %s.empp" % (time.time() - start, j_prefix))
   
